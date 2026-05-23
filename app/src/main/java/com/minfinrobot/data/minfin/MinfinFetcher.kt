@@ -21,17 +21,24 @@ class MinfinFetcher {
         .build()
 
     fun fetchListing(): List<PressReleaseLink> {
+        val html = fetchListingRaw()
+        return parseListing(html)
+    }
+
+    /**
+     * Получить сырой HTML листинга — для диагностики ("Что видит парсер").
+     */
+    fun fetchListingRaw(): String {
         val request = Request.Builder()
             .url(LISTING_URL)
             .header("User-Agent", USER_AGENT)
             .header("Accept-Language", "ru,en;q=0.5")
             .header("Cache-Control", "no-cache")
             .build()
-        val html = client.newCall(request).execute().use { resp ->
+        return client.newCall(request).execute().use { resp ->
             if (!resp.isSuccessful) throw IOException("Листинг Минфина: HTTP ${resp.code}")
             resp.body?.string() ?: throw IOException("Пустой ответ листинга")
         }
-        return parseListing(html)
     }
 
     fun fetchPublicationPage(url: String): String {
