@@ -1,0 +1,21 @@
+# Android Studio / IntelliJ
+.idea/
+.gradle/
+local.properties
+*.iml
+
+# Build artifacts
+build/
+app/build/
+captures/
+
+# Keystore
+*.keystore
+*.jks
+
+# OS
+.DS_Store
+Thumbs.db
+
+# НЕ игнорировать wrapper - он обязательно нужен для CI
+!gradle/wrapper/gradle-wrapper.jar
