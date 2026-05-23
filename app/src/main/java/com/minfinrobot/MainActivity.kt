@@ -27,6 +27,7 @@ import com.minfinrobot.ui.MainViewModel
 import com.minfinrobot.ui.logs.LogsScreen
 import com.minfinrobot.ui.main.MainScreen
 import com.minfinrobot.ui.settings.SettingsScreen
+import com.minfinrobot.ui.test.TestScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,7 +45,7 @@ fun MainNavigation() {
     val mergedState = state.copy(robotState = robotState)
 
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Главная", "Настройки", "Логи")
+    val tabs = listOf("Главная", "Настройки", "Тест", "Логи")
 
     Scaffold(
         topBar = {
@@ -71,7 +72,8 @@ fun MainNavigation() {
             when (selectedTab) {
                 0 -> MainScreen(viewModel, mergedState)
                 1 -> SettingsScreen(viewModel, mergedState)
-                2 -> LogsScreen(viewModel)
+                2 -> TestScreen()
+                3 -> LogsScreen(viewModel)
             }
         }
     }
