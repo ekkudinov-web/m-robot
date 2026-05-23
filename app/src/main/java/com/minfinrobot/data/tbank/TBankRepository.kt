@@ -68,12 +68,31 @@ class TBankRepository(private val settings: SecureSettingsStore) {
         }
     }
 
+    /**
+     * Загрузить фьючерсы из справочника Т-Инвестиций.
+     *
+     * По умолчанию подгружаются:
+     *   - валютные: Si (USD), CR (CNY), Eu (EUR)
+     *   - индексные: MIX/MXI (IMOEX), RTS (RTSI), IMOEXF (вечный IMOEX)
+     *   - облигационные: RGBI (гособлигации)
+     *
+     * Фильтрация двойная — по basicAsset И по prefix тикера, потому что
+     * T-Invest может возвращать разные значения basicAsset для одного актива
+     * (например MIX-9.26 может иметь basicAsset="IMOEX" или "MOEX").
+     */
     suspend fun loadFutures(
-        wantedBasicAssets: Set<String> = setOf("USD", "CNY", "EUR")
+        wantedBasicAssets: Set<String> = DEFAULT_BASIC_ASSETS,
+        wantedTickerPrefixes: Set<String> = DEFAULT_TICKER_PREFIXES
     ): List<InstrumentRef> {
         val resp = api().getFutures()
+        val upperAssets = wantedBasicAssets.map { it.uppercase() }.toSet()
+        val upperPrefixes = wantedTickerPrefixes.map { it.uppercase() }.toSet()
         return resp.instruments
-            .filter { it.basicAsset.uppercase() in wantedBasicAssets }
+            .filter { dto ->
+                val asset = dto.basicAsset.uppercase()
+                val ticker = dto.ticker.uppercase()
+                asset in upperAssets || upperPrefixes.any { ticker.startsWith(it) }
+            }
             .map { dto ->
                 InstrumentRef(
                     uid = dto.uid,
@@ -163,5 +182,20 @@ class TBankRepository(private val settings: SecureSettingsStore) {
     companion object {
         const val PROD_URL = "https://invest-public-api.tinkoff.ru/"
         const val SANDBOX_URL = "https://sandbox-invest-public-api.tinkoff.ru/"
+
+        // Базовые активы которые точно поддерживаем
+        val DEFAULT_BASIC_ASSETS = setOf(
+            "USD", "CNY", "EUR",
+            "IMOEX", "MOEX", "RTSI", "RTS", "RGBI", "RGBITR"
+        )
+
+        // Префиксы тикеров на случай если basicAsset вернётся в другом формате
+        val DEFAULT_TICKER_PREFIXES = setOf(
+            "SI", "CR", "EU",     // валютные
+            "MIX", "MX",          // IMOEX
+            "RTS",                // RTSI
+            "RGBI",               // гособлигации
+            "IMOEXF"              // вечный IMOEX
+        )
     }
 }

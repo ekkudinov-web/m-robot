@@ -30,17 +30,24 @@ class TassFetcher {
         .build()
 
     fun fetchListing(): List<TassListingLink> {
+        val html = fetchListingRaw()
+        return parseListing(html)
+    }
+
+    /**
+     * Получить сырой HTML листинга — для диагностики ("Что видит парсер").
+     */
+    fun fetchListingRaw(): String {
         val request = Request.Builder()
             .url(LISTING_URL)
             .header("User-Agent", USER_AGENT)
             .header("Accept-Language", "ru,en;q=0.5")
             .header("Cache-Control", "no-cache")
             .build()
-        val html = client.newCall(request).execute().use { resp ->
+        return client.newCall(request).execute().use { resp ->
             if (!resp.isSuccessful) throw IOException("ТАСС: HTTP ${resp.code}")
             resp.body?.string() ?: throw IOException("ТАСС: пустой ответ")
         }
-        return parseListing(html)
     }
 
     fun fetchPublicationPage(url: String): String {
@@ -57,27 +64,93 @@ class TassFetcher {
     }
 
     /**
-     * Парсит листинг ТАСС, ищет статьи с ID вида /ekonomika/NNNNNNN.
+     * Парсит листинг ТАСС.
+     *
+     * Реальная вёрстка (май 2026):
+     *   <a class="NonMediaMaterialCardLayout_link__..." href="/ekonomika/27510619">
+     *     <div class="NonMediaMaterialCardLayout_wrapper__...">
+     *       <div class="NonMediaMaterialCardLayout_content__...">
+     *         <div class="NonMediaMaterialCardLayout_text_container__...">
+     *           <div class="NonMediaMaterialCardLayout_text__...">
+     *             Заголовок новости
+     *           </div>
+     *           ...
+     *
+     * Заголовок упрятан в 4 уровня div'ов. Делаем двухшаговый парсинг:
+     *   1. Извлекаем все блоки <a ... href="/ekonomika/NNNNN">...</a> через
+     *      балансировку открывающих/закрывающих тегов.
+     *   2. Внутри каждого блока ищем текст в div с классом *MaterialCardLayout_text*
+     *      (или fallback: все буквы между тегами).
      */
     private fun parseListing(html: String): List<TassListingLink> {
-        val regex = Regex(
-            """<a[^>]*href=["']([^"']*?/ekonomika/\d+)["'][^>]*>([^<]{15,300})</a>""",
+        val results = mutableListOf<TassListingLink>()
+        val seen = mutableSetOf<String>()
+
+        // 1. Найти все href="/ekonomika/NNNN..." и позицию начала каждого <a>
+        val hrefRegex = Regex(
+            """<a\s[^>]*?href=["'](/ekonomika/\d+[^"']*)["']""",
             RegexOption.IGNORE_CASE
         )
-        return regex.findAll(html)
-            .map {
-                val href = it.groupValues[1]
-                val title = it.groupValues[2]
-                    .replace("&nbsp;", " ")
-                    .replace("&quot;", "\"")
-                    .replace("&amp;", "&")
-                    .replace(Regex("\\s+"), " ")
-                    .trim()
-                val full = if (href.startsWith("http")) href else BASE_URL + href
-                TassListingLink(url = full, title = title)
+        // Текст внутри div'ов с MaterialCardLayout_text - основное место заголовка
+        val titleClassRegex = Regex(
+            """class=["'][^"']*MaterialCardLayout_text[^"']*["'][^>]*>([^<]+)<""",
+            RegexOption.IGNORE_CASE
+        )
+
+        hrefRegex.findAll(html).forEach { hrefMatch ->
+            val href = hrefMatch.groupValues[1]
+            if (href in seen) return@forEach
+
+            // Окно поиска: от текущего <a> до 3000 символов вперёд
+            // (одна карточка обычно ~500-1500 символов).
+            val from = hrefMatch.range.first
+            val to = minOf(from + 3000, html.length)
+            val window = html.substring(from, to)
+
+            // Закрытие текущего <a> — берём только до него
+            val closeIdx = window.indexOf("</a>", ignoreCase = true)
+            val card = if (closeIdx > 0) window.substring(0, closeIdx) else window
+
+            // Ищем заголовок в card
+            val titleMatch = titleClassRegex.find(card)
+            val title = if (titleMatch != null) {
+                cleanTitle(titleMatch.groupValues[1])
+            } else {
+                // Fallback: вытащить весь текст между тегами и склеить
+                extractAnyText(card)
             }
-            .distinctBy { it.url }
-            .toList()
+
+            if (title.length >= 10) {
+                seen.add(href)
+                results.add(makeLink(href, title))
+            }
+        }
+        return results
+    }
+
+    private fun makeLink(href: String, title: String): TassListingLink {
+        val full = if (href.startsWith("http")) href else BASE_URL + href
+        return TassListingLink(url = full, title = title)
+    }
+
+    private fun cleanTitle(raw: String): String =
+        raw.replace("&nbsp;", " ")
+            .replace("&quot;", "\"")
+            .replace("&amp;", "&")
+            .replace("&laquo;", "«")
+            .replace("&raquo;", "»")
+            .replace("&mdash;", "—")
+            .replace("&ndash;", "–")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+    private fun extractAnyText(html: String): String {
+        // Срезаем все теги и собираем текст. Берём первый осмысленный кусок (>=15 символов).
+        val stripped = Regex("""<[^>]+>""").replace(html, " ")
+        val cleaned = cleanTitle(stripped)
+        // Иногда после полной очистки получается длинная строка из нескольких текстов —
+        // берём первое предложение / первый осмысленный кусок до 200 символов.
+        return cleaned.take(200)
     }
 
     companion object {

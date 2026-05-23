@@ -11,8 +11,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -22,8 +22,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.minfinrobot.ui.MainViewModel
+import com.minfinrobot.ui.cbr.CbrScreen
 import com.minfinrobot.ui.logs.LogsScreen
 import com.minfinrobot.ui.main.MainScreen
 import com.minfinrobot.ui.settings.SettingsScreen
@@ -45,13 +47,13 @@ fun MainNavigation() {
     val mergedState = state.copy(robotState = robotState)
 
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Главная", "Настройки", "Тест", "Логи")
+    val tabs = listOf("Минфин", "Робот ЦБ", "Настройки", "Тест", "Логи")
 
     Scaffold(
         topBar = {
             Column {
                 TopAppBar(title = { Text("Минфин-робот") })
-                TabRow(selectedTabIndex = selectedTab) {
+                ScrollableTabRow(selectedTabIndex = selectedTab, edgePadding = 0.dp) {
                     tabs.forEachIndexed { i, title ->
                         Tab(
                             selected = selectedTab == i,
@@ -71,9 +73,10 @@ fun MainNavigation() {
         ) {
             when (selectedTab) {
                 0 -> MainScreen(viewModel, mergedState)
-                1 -> SettingsScreen(viewModel, mergedState)
-                2 -> TestScreen()
-                3 -> LogsScreen(viewModel)
+                1 -> CbrScreen(viewModel, mergedState)
+                2 -> SettingsScreen(viewModel, mergedState)
+                3 -> TestScreen()
+                4 -> LogsScreen(viewModel)
             }
         }
     }
