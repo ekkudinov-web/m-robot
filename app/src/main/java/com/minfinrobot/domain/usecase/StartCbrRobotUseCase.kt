@@ -186,8 +186,8 @@ class StartCbrRobotUseCase(
                     limitPrice = scenario.limitPrice
                 )
                 r.fold(
-                    onSuccess = { LogStore.info("Отправлен, id=$it") },
-                    onFailure = { LogStore.error("Отказ: ${it.message}") }
+                    onSuccess = { id: String -> LogStore.info("Отправлен, id=$id") },
+                    onFailure = { err: Throwable -> LogStore.error("Отказ: ${err.message}") }
                 )
                 scenario.id to r
             }

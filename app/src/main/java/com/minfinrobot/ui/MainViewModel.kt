@@ -188,7 +188,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             LogStore.info("Проверка счёта $accountId...")
             val result = appInstance.tbank.checkAccountReadiness(accountId)
             result.fold(
-                onSuccess = { status ->
+                onSuccess = { status: com.minfinrobot.data.tbank.TBankRepository.AccountStatus ->
                     LogStore.info("✓ ${status.describe()}")
                     if (status.totalRub < 1000.0) {
                         LogStore.warn(
@@ -197,7 +197,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         )
                     }
                 },
-                onFailure = { e -> LogStore.error("✗ Проверка счёта: ${e.message}") }
+                onFailure = { e: Throwable -> LogStore.error("✗ Проверка счёта: ${e.message}") }
             )
         }
     }

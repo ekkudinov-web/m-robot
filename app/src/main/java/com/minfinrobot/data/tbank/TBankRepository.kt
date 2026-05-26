@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit
  * Репозиторий T-Invest.
  *
  * Переключается между sandbox и production по settings.isSandbox.
- * В sandbox-режиме использует специальные эндпоинты SandboxService/*
+ * В sandbox-режиме использует специальные эндпоинты "SandboxService" (см. документацию)
  * (требование официального API — обычные методы на sandbox-домене не работают).
  */
 class TBankRepository(private val settings: SecureSettingsStore) {
