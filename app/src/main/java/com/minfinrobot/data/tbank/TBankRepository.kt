@@ -10,6 +10,7 @@ import com.minfinrobot.domain.model.TradeAction
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import retrofit2.HttpException
 import retrofit2.Retrofit
 import java.time.Instant
 import java.util.UUID
@@ -17,8 +18,10 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Репозиторий T-Invest.
- * Прозрачно переключается между sandbox и production по settings.isSandbox.
- * Bearer-токен инжектится OkHttp-интерсептором.
+ *
+ * Переключается между sandbox и production по settings.isSandbox.
+ * В sandbox-режиме использует специальные эндпоинты SandboxService/*
+ * (требование официального API — обычные методы на sandbox-домене не работают).
  */
 class TBankRepository(private val settings: SecureSettingsStore) {
 
@@ -44,7 +47,14 @@ class TBankRepository(private val settings: SecureSettingsStore) {
                     .addHeader("Authorization", "Bearer $token")
                     .addHeader("Content-Type", "application/json")
                     .build()
-                chain.proceed(req)
+                val resp = chain.proceed(req)
+                // Лог любых HTTP-ошибок T-Invest. Тело важно — там описание.
+                if (!resp.isSuccessful) {
+                    val body = try { resp.peekBody(4096).string() } catch (e: Exception) { "?" }
+                    val path = req.url.encodedPath.substringAfterLast("/")
+                    LogStore.error("T-Invest HTTP ${resp.code} на $path: $body")
+                }
+                resp
             }
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
@@ -58,27 +68,25 @@ class TBankRepository(private val settings: SecureSettingsStore) {
             .create(TBankApi::class.java)
 
         cachedClient = isSandbox to api
+        LogStore.info(
+            "T-Invest клиент пересоздан: ${if (isSandbox) "SANDBOX" else "PRODUCTION"} ($baseUrl)"
+        )
         return api
     }
 
+    /**
+     * Загрузка счетов. В sandbox использует GetSandboxAccounts.
+     */
     suspend fun loadAccounts(): List<AccountRef> {
-        val resp = api().getAccounts()
+        val resp = if (settings.isSandbox) api().getSandboxAccounts()
+                   else api().getAccounts()
         return resp.accounts.map {
             AccountRef(id = it.id, name = it.name.ifEmpty { it.id }, type = it.type)
         }
     }
 
     /**
-     * Загрузить фьючерсы из справочника Т-Инвестиций.
-     *
-     * По умолчанию подгружаются:
-     *   - валютные: Si (USD), CR (CNY), Eu (EUR)
-     *   - индексные: MIX/MXI (IMOEX), RTS (RTSI), IMOEXF (вечный IMOEX)
-     *   - облигационные: RGBI (гособлигации)
-     *
-     * Фильтрация двойная — по basicAsset И по prefix тикера, потому что
-     * T-Invest может возвращать разные значения basicAsset для одного актива
-     * (например MIX-9.26 может иметь basicAsset="IMOEX" или "MOEX").
+     * Загрузить фьючерсы. Этот метод одинаков для sandbox и production.
      */
     suspend fun loadFutures(
         wantedBasicAssets: Set<String> = DEFAULT_BASIC_ASSETS,
@@ -114,11 +122,74 @@ class TBankRepository(private val settings: SecureSettingsStore) {
     }
 
     /**
-     * Разместить ордер.
-     *  - limitPrice == null → market-ордер.
-     *  - limitPrice != null → лимитный ордер с авто-округлением:
-     *      BUY  → округляется ВНИЗ (не платим больше задуманного)
-     *      SELL → округляется ВВЕРХ (не продаём дешевле задуманного)
+     * Открыть sandbox-счёт. Возвращает ID нового счёта или ошибку.
+     * Можно вызывать многократно — каждый вызов создаёт новый счёт.
+     */
+    suspend fun openSandboxAccount(): Result<String> = try {
+        if (!settings.isSandbox) {
+            Result.failure(IllegalStateException("openSandboxAccount доступен только в режиме SANDBOX"))
+        } else {
+            val resp = api().openSandboxAccount()
+            LogStore.info("Открыт sandbox-счёт: ${resp.accountId}")
+            Result.success(resp.accountId)
+        }
+    } catch (e: Exception) {
+        LogStore.error("openSandboxAccount: ${e.message}")
+        Result.failure(e)
+    }
+
+    /**
+     * Пополнить sandbox-счёт.
+     */
+    suspend fun sandboxPayIn(accountId: String, rubAmount: Long): Result<Unit> = try {
+        if (!settings.isSandbox) {
+            Result.failure(IllegalStateException("sandboxPayIn доступен только в режиме SANDBOX"))
+        } else {
+            api().sandboxPayIn(
+                SandboxPayInRequest(
+                    accountId = accountId,
+                    amount = MoneyValue(currency = "rub", units = rubAmount.toString(), nano = 0)
+                )
+            )
+            LogStore.info("Sandbox счёт $accountId пополнен на $rubAmount ₽")
+            Result.success(Unit)
+        }
+    } catch (e: Exception) {
+        LogStore.error("sandboxPayIn: ${e.message}")
+        Result.failure(e)
+    }
+
+    /**
+     * Проверка состояния счёта перед стартом робота.
+     *  - Загружает портфель.
+     *  - Возвращает доступные средства в RUB.
+     */
+    suspend fun checkAccountReadiness(accountId: String): Result<AccountStatus> = try {
+        val resp = if (settings.isSandbox)
+            api().getSandboxPortfolio(PortfolioRequest(accountId = accountId, currency = "RUB"))
+        else
+            api().getPortfolio(PortfolioRequest(accountId = accountId, currency = "RUB"))
+
+        val total = resp.totalAmountPortfolio?.let { moneyToDouble(it) } ?: 0.0
+        val cash = resp.totalAmountCurrencies?.let { moneyToDouble(it) } ?: 0.0
+        val positions = resp.positions.size
+
+        Result.success(AccountStatus(
+            accountId = accountId,
+            totalRub = total,
+            cashRub = cash,
+            positionsCount = positions,
+            sandbox = settings.isSandbox
+        ))
+    } catch (e: HttpException) {
+        // 404 в sandbox = счёт не существует (нужен OpenSandboxAccount).
+        Result.failure(RuntimeException("Счёт не найден или нет доступа: ${e.message}"))
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
+    /**
+     * Разместить ордер. В sandbox использует PostSandboxOrder.
      */
     suspend fun placeOrder(
         accountId: String,
@@ -161,16 +232,27 @@ class TBankRepository(private val settings: SecureSettingsStore) {
             price = priceQuotation
         )
 
-        val resp = api().postOrder(request)
+        LogStore.info(
+            "→ T-Invest ${if (settings.isSandbox) "[SBX]" else "[PROD]"} PostOrder: " +
+                "${action} ${quantity} ${instrument.ticker} ($orderType)"
+        )
+
+        val resp = if (settings.isSandbox) api().postSandboxOrder(request)
+                   else api().postOrder(request)
+
+        LogStore.info("← статус: ${resp.executionReportStatus}, " +
+            "исполнено лотов: ${resp.lotsExecuted}/${resp.lotsRequested}")
+
         val ok = resp.executionReportStatus.contains("FILL", true) ||
                 resp.executionReportStatus.contains("NEW", true) ||
                 resp.executionReportStatus.contains("PLACED", true)
 
         if (ok) Result.success(resp.orderId.ifEmpty { orderId })
         else Result.failure(RuntimeException(
-            "T-Invest вернул статус: ${resp.executionReportStatus} ${resp.message}"
+            "T-Invest отказал: ${resp.executionReportStatus} ${resp.message}"
         ))
     } catch (e: Exception) {
+        LogStore.error("placeOrder: ${e.message}")
         Result.failure(e)
     }
 
@@ -179,23 +261,41 @@ class TBankRepository(private val settings: SecureSettingsStore) {
         return try { Instant.parse(iso).toEpochMilli() } catch (e: Exception) { 0L }
     }
 
+    private fun moneyToDouble(m: MoneyValue): Double =
+        m.units.toLongOrNull()?.let { it + m.nano / 1_000_000_000.0 } ?: 0.0
+
+    /**
+     * Состояние счёта (для проверки готовности перед стартом робота).
+     */
+    data class AccountStatus(
+        val accountId: String,
+        val totalRub: Double,
+        val cashRub: Double,
+        val positionsCount: Int,
+        val sandbox: Boolean
+    ) {
+        fun describe(): String = buildString {
+            append("Счёт ${if (sandbox) "[SBX]" else "[PROD]"} ${accountId.takeLast(8)}: ")
+            append("портфель=${"%.2f".format(totalRub)} ₽, ")
+            append("кеш=${"%.2f".format(cashRub)} ₽, ")
+            append("позиций=$positionsCount")
+        }
+    }
+
     companion object {
         const val PROD_URL = "https://invest-public-api.tinkoff.ru/"
         const val SANDBOX_URL = "https://sandbox-invest-public-api.tinkoff.ru/"
 
-        // Базовые активы которые точно поддерживаем
         val DEFAULT_BASIC_ASSETS = setOf(
             "USD", "CNY", "EUR",
             "IMOEX", "MOEX", "RTSI", "RTS", "RGBI", "RGBITR"
         )
-
-        // Префиксы тикеров на случай если basicAsset вернётся в другом формате
         val DEFAULT_TICKER_PREFIXES = setOf(
-            "SI", "CR", "EU",     // валютные
-            "MIX", "MX",          // IMOEX
-            "RTS",                // RTSI
-            "RGBI",               // гособлигации
-            "IMOEXF"              // вечный IMOEX
+            "SI", "CR", "EU",
+            "MIX", "MX",
+            "RTS",
+            "RGBI",
+            "IMOEXF"
         )
     }
 }

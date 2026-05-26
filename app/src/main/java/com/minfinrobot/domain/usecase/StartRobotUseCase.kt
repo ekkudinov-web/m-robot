@@ -50,20 +50,28 @@ class StartRobotUseCase(
             LogStore.info(
                 "Запуск робота. Дата: ${config.targetDate}, " +
                     "сценариев: ${config.scenarios.size}, " +
-                    "режим: ${if (settings.isSandbox) "SANDBOX" else "PRODUCTION"}"
+                    "режим: ${if (settings.isSandbox) "SANDBOX" else "PRODUCTION"}" +
+                    if (config.bypassDateCheck) " [BYPASS DATE — SANDBOX TEST]" else ""
             )
 
-            onState(RobotRunState.WAITING_FOR_WINDOW)
-            if (!waitForWindowStart(config)) {
-                LogStore.warn("Целевая дата уже прошла или окно закрыто")
-                onState(RobotRunState.DONE_WINDOW_EXPIRED)
-                return RobotRunState.DONE_WINDOW_EXPIRED
+            if (config.bypassDateCheck) {
+                LogStore.warn("ВНИМАНИЕ: режим тестового запуска — игнорируем дату и окно")
+            } else {
+                onState(RobotRunState.WAITING_FOR_WINDOW)
+                if (!waitForWindowStart(config)) {
+                    LogStore.warn("Целевая дата уже прошла или окно закрыто")
+                    onState(RobotRunState.DONE_WINDOW_EXPIRED)
+                    return RobotRunState.DONE_WINDOW_EXPIRED
+                }
             }
 
-            val baselineUrl = settings.lastProcessedPublicationUrl
+            // В режиме теста игнорируем baseline (хотим найти текущую публикацию,
+            // даже если она уже была обработана раньше).
+            val baselineUrl = if (config.bypassDateCheck) null
+                              else settings.lastProcessedPublicationUrl
             LogStore.info(
-                "Окно открыто, поллим Минфин+ТАСС каждые ${config.pollIntervalMs} мс. " +
-                    "Baseline: ${baselineUrl ?: "нет"}"
+                "Поллим Минфин+ТАСС каждые ${config.pollIntervalMs} мс. " +
+                    "Baseline: ${baselineUrl ?: "нет (тестовый запуск)"}"
             )
 
             onState(RobotRunState.POLLING_LISTING)
@@ -83,7 +91,9 @@ class StartRobotUseCase(
                     "total=${publication.totalVolumeRubBn ?: "?"}"
             )
 
-            settings.lastProcessedPublicationUrl = publication.publicationUrl
+            if (!config.bypassDateCheck) {
+                settings.lastProcessedPublicationUrl = publication.publicationUrl
+            }
 
             if (publication.isPaused) {
                 LogStore.warn("Минфин приостановил операции — НЕ ТОРГУЕМ")
@@ -141,13 +151,26 @@ class StartRobotUseCase(
         baselineUrl: String?
     ): MinfinPublication? {
         var pollCount = 0
+        // В тестовом режиме делаем максимум 60 опросов (~2 минуты) и сдаёмся,
+        // чтобы не висеть бесконечно если ничего нет.
+        val maxPollsForBypass = 60
         while (true) {
-            val now = ZonedDateTime.now(MOSCOW)
-            val nowMinute = now.toLocalTime().toSecondOfDay() / 60
-            if (now.toLocalDate() != config.targetDate ||
-                nowMinute >= config.windowEndMinuteOfDay
-            ) {
-                return null
+            if (config.bypassDateCheck) {
+                if (pollCount >= maxPollsForBypass) {
+                    LogStore.warn(
+                        "Тестовый запуск: за $maxPollsForBypass опросов ничего не " +
+                            "найдено. Остановка."
+                    )
+                    return null
+                }
+            } else {
+                val now = ZonedDateTime.now(MOSCOW)
+                val nowMinute = now.toLocalTime().toSecondOfDay() / 60
+                if (now.toLocalDate() != config.targetDate ||
+                    nowMinute >= config.windowEndMinuteOfDay
+                ) {
+                    return null
+                }
             }
             pollCount++
 

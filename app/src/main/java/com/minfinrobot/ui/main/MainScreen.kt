@@ -278,17 +278,33 @@ private fun ControlButtons(state: MainUiState, vm: MainViewModel) {
         RobotRunState.PUBLICATION_FOUND,
         RobotRunState.PLACING_ORDERS
     )
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(
-            onClick = { vm.startRobot() },
-            enabled = !isRunning && state.scenarios.isNotEmpty() && state.selectedAccountId != null,
-            modifier = Modifier.weight(1f)
-        ) { Text("ЗАПУСТИТЬ") }
-        OutlinedButton(
-            onClick = { vm.stopRobot() },
-            enabled = isRunning,
-            modifier = Modifier.weight(1f)
-        ) { Text("Остановить") }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = { vm.startRobot() },
+                enabled = !isRunning && state.scenarios.isNotEmpty() && state.selectedAccountId != null,
+                modifier = Modifier.weight(1f)
+            ) { Text("ЗАПУСТИТЬ") }
+            OutlinedButton(
+                onClick = { vm.stopRobot() },
+                enabled = isRunning,
+                modifier = Modifier.weight(1f)
+            ) { Text("Остановить") }
+        }
+        if (state.isSandbox) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { vm.startRobotTestMode() },
+                    enabled = !isRunning && state.scenarios.isNotEmpty() && state.selectedAccountId != null,
+                    modifier = Modifier.weight(1f)
+                ) { Text("ТЕСТ-ЗАПУСК [SBX]") }
+                OutlinedButton(
+                    onClick = { vm.checkAccountReadiness() },
+                    enabled = state.selectedAccountId != null,
+                    modifier = Modifier.weight(1f)
+                ) { Text("Проверить счёт") }
+            }
+        }
     }
 }
 

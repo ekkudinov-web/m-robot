@@ -20,7 +20,8 @@ data class RobotConfig(
     val scenarios: List<Scenario>,
     val windowStartMinuteOfDay: Int = 11 * 60 + 30,   // 11:30 МСК
     val windowEndMinuteOfDay: Int = 14 * 60,          // 14:00 МСК
-    val pollIntervalMs: Long = 2000L
+    val pollIntervalMs: Long = 2000L,
+    val bypassDateCheck: Boolean = false
 )
 
 /**

@@ -151,9 +151,60 @@ fun SettingsScreen(viewModel: MainViewModel, state: MainUiState) {
                 Spacer(Modifier.height(8.dp))
                 Text("Production: my.tinkoff.ru → Инвестиции → Настройки → Токены T-Invest API → создать с правами на торговлю.")
                 Spacer(Modifier.height(8.dp))
-                Text("Sandbox: тот же раздел, тип «Sandbox». Перед первой работой создать sandbox-счёт через REST-эндпоинт SandboxService/OpenSandboxAccount (см. README).")
+                Text("Sandbox: тот же раздел, тип «Sandbox». Sandbox-счёт можно создать прямо из приложения кнопкой ниже.")
                 Spacer(Modifier.height(8.dp))
                 Text("Токены хранятся локально с AES-256 шифрованием. Не публикуйте APK с токеном внутри.")
+            }
+        }
+
+        if (state.isSandbox && state.hasSandboxToken) {
+            SandboxOperationsCard(viewModel, state)
+        }
+    }
+}
+
+@Composable
+private fun SandboxOperationsCard(viewModel: MainViewModel, state: MainUiState) {
+    var payInAmount by remember { mutableStateOf("1000000") }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Sandbox-операции", fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Создание счёта и пополнение баланса прямо из приложения " +
+                    "(альтернатива curl-командам из README).",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = { viewModel.openSandboxAccount() },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Открыть новый sandbox-счёт") }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "После создания счёта нажми «Загрузить справочник» на главной — " +
+                    "новый счёт появится в списке. Выбери его, потом пополни:",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = payInAmount,
+                onValueChange = { payInAmount = it.filter { c -> c.isDigit() } },
+                label = { Text("Сумма пополнения, ₽") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    payInAmount.toLongOrNull()?.let { viewModel.sandboxPayIn(it) }
+                },
+                enabled = state.selectedAccountId != null && payInAmount.isNotBlank(),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    if (state.selectedAccountId != null) "Пополнить выбранный счёт"
+                    else "(сначала выбери счёт)"
+                )
             }
         }
     }

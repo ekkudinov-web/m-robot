@@ -113,3 +113,52 @@ data class PostOrderResponse(
     @SerialName("lots_executed") val lotsExecuted: Int = 0,
     val message: String = ""
 )
+
+// --- Sandbox-специфичные DTOs ---
+
+@Serializable
+data class OpenSandboxAccountResponse(
+    @SerialName("account_id") val accountId: String = ""
+)
+
+@Serializable
+data class MoneyValue(
+    val currency: String,
+    val units: String = "0",
+    val nano: Int = 0
+)
+
+@Serializable
+data class SandboxPayInRequest(
+    @SerialName("account_id") val accountId: String,
+    val amount: MoneyValue
+)
+
+@Serializable
+data class SandboxPayInResponse(
+    val balance: MoneyValue? = null
+)
+
+// --- Portfolio (используется для проверки баланса) ---
+
+@Serializable
+data class PortfolioRequest(
+    @SerialName("account_id") val accountId: String,
+    val currency: String = "RUB"
+)
+
+@Serializable
+data class PortfolioResponse(
+    @SerialName("total_amount_portfolio") val totalAmountPortfolio: MoneyValue? = null,
+    @SerialName("total_amount_currencies") val totalAmountCurrencies: MoneyValue? = null,
+    @SerialName("total_amount_futures") val totalAmountFutures: MoneyValue? = null,
+    val positions: List<PortfolioPosition> = emptyList()
+)
+
+@Serializable
+data class PortfolioPosition(
+    val figi: String = "",
+    @SerialName("instrument_type") val instrumentType: String = "",
+    val quantity: Quotation = Quotation(),
+    @SerialName("current_price") val currentPrice: MoneyValue? = null
+)

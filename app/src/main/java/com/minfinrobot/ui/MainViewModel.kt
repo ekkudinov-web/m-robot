@@ -133,6 +133,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun startRobot() {
+        startRobotInternal(bypassDate = false)
+    }
+
+    /**
+     * Тестовый запуск Минфин-робота, игнорирующий проверку даты.
+     * Доступен только в sandbox-режиме.
+     */
+    fun startRobotTestMode() {
+        if (!appInstance.settings.isSandbox) {
+            _uiState.value = _uiState.value.copy(
+                errorMessage = "Тестовый запуск доступен только в режиме SANDBOX"
+            )
+            return
+        }
+        startRobotInternal(bypassDate = true)
+    }
+
+    private fun startRobotInternal(bypassDate: Boolean) {
         val state = _uiState.value
         if (RobotExecutionService.State.isBusy()) {
             _uiState.value = state.copy(errorMessage = "Уже запущен другой робот — остановите его")
@@ -148,11 +166,65 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val config = RobotConfig(
             targetDate = state.targetDate,
             accountId = accountId,
-            scenarios = state.scenarios
+            scenarios = state.scenarios,
+            bypassDateCheck = bypassDate
         )
         val ok = RobotExecutionService.startMinfin(getApplication(), config, state.instruments)
         if (!ok) {
             _uiState.value = state.copy(errorMessage = "Не удалось запустить Минфин-робот")
+        }
+    }
+
+    /**
+     * Проверка готовности счёта — выводит результат в лог.
+     */
+    fun checkAccountReadiness() {
+        viewModelScope.launch {
+            val accountId = _uiState.value.selectedAccountId
+            if (accountId == null) {
+                LogStore.error("Сначала выбери счёт")
+                return@launch
+            }
+            LogStore.info("Проверка счёта $accountId...")
+            val result = appInstance.tbank.checkAccountReadiness(accountId)
+            result.fold(
+                onSuccess = { status ->
+                    LogStore.info("✓ ${status.describe()}")
+                    if (status.totalRub < 1000.0) {
+                        LogStore.warn(
+                            "На счёте мало средств (<1000 ₽). " +
+                                "Для торговли фьючерсами обычно нужно от 10000 ₽ ГО."
+                        )
+                    }
+                },
+                onFailure = { e -> LogStore.error("✗ Проверка счёта: ${e.message}") }
+            )
+        }
+    }
+
+    /**
+     * Открыть новый sandbox-счёт (только sandbox).
+     */
+    fun openSandboxAccount() {
+        viewModelScope.launch {
+            val r = appInstance.tbank.openSandboxAccount()
+            r.onSuccess {
+                LogStore.info("Создан sandbox-счёт. Перезагрузи справочник.")
+            }
+        }
+    }
+
+    /**
+     * Пополнить sandbox-счёт на заданную сумму ₽.
+     */
+    fun sandboxPayIn(amountRub: Long) {
+        viewModelScope.launch {
+            val accountId = _uiState.value.selectedAccountId
+            if (accountId == null) {
+                LogStore.error("Сначала выбери счёт")
+                return@launch
+            }
+            appInstance.tbank.sandboxPayIn(accountId, amountRub)
         }
     }
 
