@@ -55,16 +55,19 @@ object MinfinParser {
     private val TITLE_KEYWORDS = listOf(
         Regex("""нефтегазов[$CYR]+\s+доход""", RegexOption.IGNORE_CASE),
         Regex("""операц[$CYR]+\s+по\s+покупк""", RegexOption.IGNORE_CASE),
-        Regex("""иностранн[$CYR]+\s+валют""", RegexOption.IGNORE_CASE)
+        Regex("""операц[$CYR]+\s+по\s+продаж""", RegexOption.IGNORE_CASE),
+        Regex("""бюджетн[$CYR]+\s+правил""", RegexOption.IGNORE_CASE),
+        Regex("""покупк[$CYR]*\s+иностранн[$CYR]+\s+валют""", RegexOption.IGNORE_CASE),
+        Regex("""продаж[$CYR]*\s+иностранн[$CYR]+\s+валют""", RegexOption.IGNORE_CASE)
     )
 
     /**
      * Проверка заголовка из листинга на соответствие целевой публикации.
-     * Должно совпасть минимум 2 из 3 ключевых фраз.
+     * Достаточно совпадения хотя бы 1 ключевой фразы (раньше требовали 2 из 3,
+     * но формулировки Минфина варьируются — упускали реальные публикации).
      */
     fun isTargetTitle(title: String): Boolean {
-        val matches = TITLE_KEYWORDS.count { it.containsMatchIn(title) }
-        return matches >= 2
+        return TITLE_KEYWORDS.any { it.containsMatchIn(title) }
     }
 
     /**

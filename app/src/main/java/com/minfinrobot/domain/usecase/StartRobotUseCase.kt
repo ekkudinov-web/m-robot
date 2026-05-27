@@ -219,10 +219,14 @@ class StartRobotUseCase(
                 }
                 parsed
             } else {
+                // Диагностика: показываем заголовки которые не подошли
+                LogStore.warn("[MINFIN] Ни один из ${links.size} заголовков не подошёл")
+                links.take(3).forEachIndexed { i, link ->
+                    LogStore.info("  ${i + 1}. ${link.title.take(80)}")
+                }
                 null
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
-            // Не подавляем, иначе корутина не отменится. Не логируем как ошибку.
             throw e
         } catch (e: Exception) {
             LogStore.error("[MINFIN] ${e.javaClass.simpleName}: ${e.message ?: "(нет сообщения)"}")
@@ -248,6 +252,10 @@ class StartRobotUseCase(
                 }
                 parsed
             } else {
+                LogStore.warn("[TASS] Ни один из ${links.size} заголовков не подошёл")
+                links.take(3).forEachIndexed { i, link ->
+                    LogStore.info("  ${i + 1}. ${link.title.take(80)}")
+                }
                 null
             }
         } catch (e: kotlinx.coroutines.CancellationException) {

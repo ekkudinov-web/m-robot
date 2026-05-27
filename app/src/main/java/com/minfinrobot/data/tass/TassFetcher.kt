@@ -178,13 +178,17 @@ object TassParser {
 
     private val KW_MINFIN = Regex("Минфин", RegexOption.IGNORE_CASE)
     private val KW_OPERATION =
-        Regex("покуп[$CYR]+|прода[$CYR]+|бюджетн[$CYR]+\\s+правил", RegexOption.IGNORE_CASE)
-    private val KW_CURRENCY = Regex("валют[$CYR]+", RegexOption.IGNORE_CASE)
+        Regex("покуп[$CYR]+|прода[$CYR]+|бюджетн[$CYR]+\\s+правил|нефтегаз", RegexOption.IGNORE_CASE)
+    private val KW_CURRENCY = Regex("валют[$CYR]+|юан|доллар|евро", RegexOption.IGNORE_CASE)
 
+    /**
+     * Распознавание целевого заголовка. Достаточно "Минфин" + одно из:
+     * (операция покупки/продажи, бюджетное правило, нефтегаз, валюта).
+     * Раньше требовали все три — упускали реальные публикации.
+     */
     fun isTargetTitle(title: String): Boolean {
-        return KW_MINFIN.containsMatchIn(title) &&
-                KW_OPERATION.containsMatchIn(title) &&
-                KW_CURRENCY.containsMatchIn(title)
+        if (!KW_MINFIN.containsMatchIn(title)) return false
+        return KW_OPERATION.containsMatchIn(title) || KW_CURRENCY.containsMatchIn(title)
     }
 
     /**

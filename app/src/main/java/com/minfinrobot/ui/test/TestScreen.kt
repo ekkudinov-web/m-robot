@@ -400,12 +400,24 @@ private fun formatLinks(label: String, links: List<Pair<String, String>>): Strin
         return "$label: подключение успешно, но 0 ссылок найдено.\n" +
             "Возможно вёрстка изменилась — нажми 'HTML $label' для диагностики."
     }
+    val isTarget: (String) -> Boolean = when (label) {
+        "MINFIN" -> MinfinParser::isTargetTitle
+        "TASS" -> TassParser::isTargetTitle
+        else -> { _ -> false }
+    }
+    val matched = links.count { isTarget(it.first) }
     return buildString {
-        appendLine("$label: получено ${links.size} ссылок")
-        appendLine("Первые 10:")
-        links.take(10).forEachIndexed { i, (title, url) ->
-            appendLine("${i + 1}. $title")
-            appendLine("   $url")
+        appendLine("$label: получено ${links.size} ссылок, подходящих: $matched")
+        appendLine()
+        appendLine("Первые 15 (✓ = робот возьмёт, ✗ = пропустит):")
+        links.take(15).forEachIndexed { i, (title, _) ->
+            val mark = if (isTarget(title)) "✓" else "✗"
+            appendLine("$mark ${i + 1}. ${title.take(120)}")
+        }
+        if (matched == 0) {
+            appendLine()
+            appendLine("⚠ Ни одна ссылка не подошла под фильтр isTargetTitle()")
+            appendLine("  Возможно, нужно ослабить ключевые слова.")
         }
     }
 }
