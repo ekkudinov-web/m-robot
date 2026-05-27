@@ -304,6 +304,13 @@ private fun ControlButtons(state: MainUiState, vm: MainViewModel) {
                     modifier = Modifier.weight(1f)
                 ) { Text("Проверить счёт") }
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { vm.showSandboxOrders() },
+                    enabled = state.selectedAccountId != null,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Показать ордера на счёте") }
+            }
         }
     }
 }

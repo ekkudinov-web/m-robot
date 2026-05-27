@@ -40,6 +40,12 @@ interface TBankApi {
     @POST("rest/tinkoff.public.invest.api.contract.v1.SandboxService/GetSandboxPortfolio")
     suspend fun getSandboxPortfolio(@Body body: PortfolioRequest): PortfolioResponse
 
+    @POST("rest/tinkoff.public.invest.api.contract.v1.SandboxService/GetSandboxOrders")
+    suspend fun getSandboxOrders(@Body body: GetOrdersRequest): GetOrdersResponse
+
+    @POST("rest/tinkoff.public.invest.api.contract.v1.SandboxService/GetSandboxOperations")
+    suspend fun getSandboxOperations(@Body body: GetOperationsRequest): GetOperationsResponse
+
     // === Общие методы (работают одинаково на обоих контурах) ===
 
     @POST("rest/tinkoff.public.invest.api.contract.v1.InstrumentsService/Futures")

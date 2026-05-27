@@ -162,3 +162,48 @@ data class PortfolioPosition(
     val quantity: Quotation = Quotation(),
     @SerialName("current_price") val currentPrice: MoneyValue? = null
 )
+
+// --- GetOrders / GetOperations ---
+
+@Serializable
+data class GetOrdersRequest(
+    @SerialName("account_id") val accountId: String
+)
+
+@Serializable
+data class OrderState(
+    @SerialName("order_id") val orderId: String = "",
+    @SerialName("execution_report_status") val executionReportStatus: String = "",
+    @SerialName("lots_requested") val lotsRequested: Int = 0,
+    @SerialName("lots_executed") val lotsExecuted: Int = 0,
+    val figi: String = "",
+    val direction: String = "",
+    @SerialName("instrument_uid") val instrumentUid: String = ""
+)
+
+@Serializable
+data class GetOrdersResponse(
+    val orders: List<OrderState> = emptyList()
+)
+
+@Serializable
+data class GetOperationsRequest(
+    @SerialName("account_id") val accountId: String,
+    val from: String = "",
+    val to: String = ""
+)
+
+@Serializable
+data class OperationState(
+    val id: String = "",
+    val type: String = "",
+    val state: String = "",
+    val figi: String = "",
+    val date: String = "",
+    val payment: MoneyValue? = null
+)
+
+@Serializable
+data class GetOperationsResponse(
+    val operations: List<OperationState> = emptyList()
+)

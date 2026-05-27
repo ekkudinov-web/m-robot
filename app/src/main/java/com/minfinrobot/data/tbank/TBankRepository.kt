@@ -122,6 +122,21 @@ class TBankRepository(private val settings: SecureSettingsStore) {
     }
 
     /**
+     * Получить все активные ордера на счёте. Sandbox-only.
+     * Используется для диагностики после запуска робота.
+     */
+    suspend fun getOrders(accountId: String): Result<List<OrderState>> = try {
+        if (!settings.isSandbox) {
+            Result.failure(IllegalStateException("getOrders доступен только в SANDBOX"))
+        } else {
+            val resp = api().getSandboxOrders(GetOrdersRequest(accountId = accountId))
+            Result.success(resp.orders)
+        }
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
+    /**
      * Открыть sandbox-счёт. Возвращает ID нового счёта или ошибку.
      * Можно вызывать многократно — каждый вызов создаёт новый счёт.
      */
@@ -161,8 +176,10 @@ class TBankRepository(private val settings: SecureSettingsStore) {
 
     /**
      * Проверка состояния счёта перед стартом робота.
-     *  - Загружает портфель.
-     *  - Возвращает доступные средства в RUB.
+     *
+     * Считает баланс из positions-массива (T-Invest sandbox часто оставляет
+     * агрегаты total_amount_portfolio пустыми). Ищем позиции с
+     * instrument_type=currency и суммируем quantity для RUB.
      */
     suspend fun checkAccountReadiness(accountId: String): Result<AccountStatus> = try {
         val resp = if (settings.isSandbox)
@@ -170,19 +187,39 @@ class TBankRepository(private val settings: SecureSettingsStore) {
         else
             api().getPortfolio(PortfolioRequest(accountId = accountId, currency = "RUB"))
 
-        val total = resp.totalAmountPortfolio?.let { moneyToDouble(it) } ?: 0.0
-        val cash = resp.totalAmountCurrencies?.let { moneyToDouble(it) } ?: 0.0
-        val positions = resp.positions.size
+        // Сначала пробуем агрегаты (производство их обычно даёт).
+        val aggTotal = resp.totalAmountPortfolio?.let { moneyToDouble(it) } ?: 0.0
+        val aggCurrencies = resp.totalAmountCurrencies?.let { moneyToDouble(it) } ?: 0.0
+        val aggFutures = resp.totalAmountFutures?.let { moneyToDouble(it) } ?: 0.0
+
+        // Дополнительно — считаем сами из positions (для sandbox).
+        var positionsCash = 0.0
+        var positionsCount = 0
+        resp.positions.forEach { pos ->
+            positionsCount++
+            val type = pos.instrumentType.lowercase()
+            if (type == "currency" || type.contains("rub") || pos.figi.contains("RUB", true)) {
+                val qty = pos.quantity.toDouble()
+                positionsCash += qty
+                LogStore.info("  Позиция: ${pos.instrumentType} ${pos.figi}, qty=$qty")
+            } else {
+                val qty = pos.quantity.toDouble()
+                LogStore.info("  Позиция: ${pos.instrumentType} ${pos.figi}, qty=$qty (не RUB)")
+            }
+        }
+
+        // Берём максимум из агрегата и подсчитанной суммы.
+        val finalTotal = maxOf(aggTotal, positionsCash + aggFutures)
+        val finalCash = maxOf(aggCurrencies, positionsCash)
 
         Result.success(AccountStatus(
             accountId = accountId,
-            totalRub = total,
-            cashRub = cash,
-            positionsCount = positions,
+            totalRub = finalTotal,
+            cashRub = finalCash,
+            positionsCount = positionsCount,
             sandbox = settings.isSandbox
         ))
     } catch (e: HttpException) {
-        // 404 в sandbox = счёт не существует (нужен OpenSandboxAccount).
         Result.failure(RuntimeException("Счёт не найден или нет доступа: ${e.message}"))
     } catch (e: Exception) {
         Result.failure(e)

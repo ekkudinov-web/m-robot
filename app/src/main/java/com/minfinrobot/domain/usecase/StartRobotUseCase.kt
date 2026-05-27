@@ -113,8 +113,12 @@ class StartRobotUseCase(
 
             onState(RobotRunState.DONE_SUCCESS)
             return RobotRunState.DONE_SUCCESS
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            LogStore.info("Робот остановлен (отмена корутины)")
+            onState(RobotRunState.DONE_WINDOW_EXPIRED)
+            throw e  // обязательно пробрасываем, иначе корутина не завершится корректно
         } catch (e: Exception) {
-            LogStore.error("Фатальная ошибка робота: ${e.message}")
+            LogStore.error("Фатальная ошибка робота: ${e.javaClass.simpleName}: ${e.message ?: "(нет сообщения)"}")
             onState(RobotRunState.ERROR)
             return RobotRunState.ERROR
         }
@@ -145,22 +149,27 @@ class StartRobotUseCase(
     /**
      * Опрашивает оба источника параллельно. Возвращает первую найденную
      * публикацию или null если окно истекло.
+     *
+     * В тестовом режиме (bypassDateCheck) делаем ВСЕГО 3 попытки —
+     * публикация уже на сайте, должна найтись с первого запроса.
+     * Если за 3 попытки нет — значит проблема (сеть/парсер/фильтр).
      */
     private suspend fun pollUntilFound(
         config: RobotConfig,
         baselineUrl: String?
     ): MinfinPublication? {
         var pollCount = 0
-        // В тестовом режиме делаем максимум 60 опросов (~2 минуты) и сдаёмся,
-        // чтобы не висеть бесконечно если ничего нет.
-        val maxPollsForBypass = 60
+        val maxPollsForBypass = 3
         while (true) {
             if (config.bypassDateCheck) {
                 if (pollCount >= maxPollsForBypass) {
                     LogStore.warn(
-                        "Тестовый запуск: за $maxPollsForBypass опросов ничего не " +
-                            "найдено. Остановка."
+                        "Тестовый запуск: за $maxPollsForBypass попытки публикация " +
+                            "не найдена. Возможные причины:"
                     )
+                    LogStore.warn("  1. Сеть блокирует Минфин/ТАСС с твоего IP")
+                    LogStore.warn("  2. isTargetTitle() не распознаёт текущий заголовок")
+                    LogStore.warn("  3. Парсер числа не справился — см. логи выше")
                     return null
                 }
             } else {
@@ -194,13 +203,16 @@ class StartRobotUseCase(
 
     private fun tryMinfin(baselineUrl: String?): MinfinPublication? {
         return try {
+            LogStore.info("→ запрос Минфина...")
             val links = minfinFetcher.fetchListing()
+            LogStore.info("← Минфин отдал ${links.size} ссылок")
             val candidate = links.firstOrNull {
                 MinfinParser.isTargetTitle(it.title) && it.url != baselineUrl
             }
             if (candidate != null) {
                 LogStore.info("[MINFIN] Найдена публикация: ${candidate.title}")
                 val html = minfinFetcher.fetchPublicationPage(candidate.url)
+                LogStore.info("[MINFIN] Скачано ${html.length} символов, парсим")
                 val parsed = MinfinParser.parse(html, candidate.url, candidate.title)
                 if (parsed == null) {
                     LogStore.warn("[MINFIN] Страница найдена, но число не распарсилось")
@@ -209,21 +221,27 @@ class StartRobotUseCase(
             } else {
                 null
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Не подавляем, иначе корутина не отменится. Не логируем как ошибку.
+            throw e
         } catch (e: Exception) {
-            LogStore.error("[MINFIN] ${e.message}")
+            LogStore.error("[MINFIN] ${e.javaClass.simpleName}: ${e.message ?: "(нет сообщения)"}")
             null
         }
     }
 
     private fun tryTass(baselineUrl: String?): MinfinPublication? {
         return try {
+            LogStore.info("→ запрос ТАСС...")
             val links = tassFetcher.fetchListing()
+            LogStore.info("← ТАСС отдал ${links.size} ссылок")
             val candidate = links.firstOrNull {
                 TassParser.isTargetTitle(it.title) && it.url != baselineUrl
             }
             if (candidate != null) {
                 LogStore.info("[TASS] Найдена публикация: ${candidate.title}")
                 val html = tassFetcher.fetchPublicationPage(candidate.url)
+                LogStore.info("[TASS] Скачано ${html.length} символов, парсим")
                 val parsed = TassParser.parse(html, candidate.url, candidate.title)
                 if (parsed == null) {
                     LogStore.warn("[TASS] Страница найдена, но число не распарсилось")
@@ -232,8 +250,10 @@ class StartRobotUseCase(
             } else {
                 null
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
-            LogStore.error("[TASS] ${e.message}")
+            LogStore.error("[TASS] ${e.javaClass.simpleName}: ${e.message ?: "(нет сообщения)"}")
             null
         }
     }

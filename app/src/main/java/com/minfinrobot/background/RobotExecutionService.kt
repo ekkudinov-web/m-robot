@@ -94,8 +94,11 @@ class RobotExecutionService : Service() {
                 }
                 State._currentState.value = finalState
                 LogStore.info("Робот завершил работу: $finalState")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                LogStore.info("Робот остановлен пользователем")
+                State._currentState.value = RobotRunState.DONE_WINDOW_EXPIRED
             } catch (e: Exception) {
-                LogStore.error("Фатальная ошибка робота: ${e.message}")
+                LogStore.error("Фатальная ошибка робота: ${e.javaClass.simpleName}: ${e.message ?: "(нет сообщения)"}")
                 State._currentState.value = RobotRunState.ERROR
             } finally {
                 State.currentMode = null

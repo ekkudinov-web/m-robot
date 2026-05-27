@@ -203,6 +203,38 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * Показать активные ордера на sandbox-счёте (диагностика).
+     */
+    fun showSandboxOrders() {
+        viewModelScope.launch {
+            val accountId = _uiState.value.selectedAccountId
+            if (accountId == null) {
+                LogStore.error("Сначала выбери счёт")
+                return@launch
+            }
+            LogStore.info("Запрос активных ордеров на счёте $accountId...")
+            appInstance.tbank.getOrders(accountId).fold(
+                onSuccess = { orders: List<com.minfinrobot.data.tbank.OrderState> ->
+                    if (orders.isEmpty()) {
+                        LogStore.info("Активных ордеров нет")
+                    } else {
+                        LogStore.info("Активных ордеров: ${orders.size}")
+                        orders.forEach { o ->
+                            LogStore.info(
+                                "  ${o.direction} ${o.lotsRequested} лот, " +
+                                    "статус: ${o.executionReportStatus}, id=${o.orderId.takeLast(8)}"
+                            )
+                        }
+                    }
+                },
+                onFailure = { e: Throwable ->
+                    LogStore.error("getOrders: ${e.message}")
+                }
+            )
+        }
+    }
+
+    /**
      * Открыть новый sandbox-счёт (только sandbox).
      */
     fun openSandboxAccount() {

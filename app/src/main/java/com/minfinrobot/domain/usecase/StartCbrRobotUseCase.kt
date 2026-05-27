@@ -87,8 +87,12 @@ class StartCbrRobotUseCase(
 
             onState(RobotRunState.DONE_SUCCESS)
             return RobotRunState.DONE_SUCCESS
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            LogStore.info("ЦБ-робот остановлен (отмена корутины)")
+            onState(RobotRunState.DONE_WINDOW_EXPIRED)
+            throw e
         } catch (e: Exception) {
-            LogStore.error("Фатальная ошибка ЦБ-робота: ${e.message}")
+            LogStore.error("Фатальная ошибка ЦБ-робота: ${e.javaClass.simpleName}: ${e.message ?: "(нет сообщения)"}")
             onState(RobotRunState.ERROR)
             return RobotRunState.ERROR
         }
