@@ -132,6 +132,36 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _uiState.value = _uiState.value.copy(scenarios = emptyList())
     }
 
+    /**
+     * Тестовый запуск по прямому URL публикации.
+     * Работает в обоих режимах (sandbox/production).
+     * Не использует foreground-service — операция короткая (1 запрос).
+     */
+    fun testByUrl(url: String) {
+        val state = _uiState.value
+        if (url.isBlank()) {
+            LogStore.error("Введи URL публикации")
+            return
+        }
+        val accountId = state.selectedAccountId ?: run {
+            LogStore.error("Не выбран счёт")
+            return
+        }
+        if (state.scenarios.isEmpty()) {
+            LogStore.error("Нет ни одного сценария на вкладке Минфин")
+            return
+        }
+        viewModelScope.launch {
+            appInstance.startRobotUseCase.invokeForUrl(
+                url = url.trim(),
+                accountId = accountId,
+                scenarios = state.scenarios,
+                instruments = state.instruments,
+                onState = { /* состояние в этом тесте не важно, всё в логах */ }
+            )
+        }
+    }
+
     fun startRobot() {
         startRobotInternal(bypassDate = false)
     }

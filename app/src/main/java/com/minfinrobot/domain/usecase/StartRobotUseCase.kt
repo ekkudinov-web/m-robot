@@ -124,6 +124,94 @@ class StartRobotUseCase(
         }
     }
 
+    /**
+     * ТЕСТОВЫЙ запуск по ПРЯМОМУ URL публикации.
+     *
+     * Пропускает поиск в листинге — сразу скачивает указанную страницу,
+     * парсит число, прогоняет через сценарии и отправляет ордера.
+     * Работает в обоих режимах (sandbox/production) — по текущему settings.isSandbox.
+     *
+     * Используется для проверки полного цикла на конкретной исторической публикации.
+     */
+    suspend fun invokeForUrl(
+        url: String,
+        accountId: String,
+        scenarios: List<Scenario>,
+        instruments: List<InstrumentRef>,
+        onState: suspend (RobotRunState) -> Unit
+    ): RobotRunState {
+        return try {
+            val mode = if (settings.isSandbox) "SANDBOX" else "PRODUCTION"
+            LogStore.info("=== ТЕСТ ПО URL ($mode) ===")
+            LogStore.info("URL: $url")
+            LogStore.warn(
+                if (settings.isSandbox)
+                    "Режим SANDBOX — ордер уйдёт на учебный счёт"
+                else
+                    "⚠ Режим PRODUCTION — ордер уйдёт на РЕАЛЬНЫЙ счёт!"
+            )
+
+            onState(RobotRunState.POLLING_LISTING)
+
+            // Скачиваем страницу напрямую. Пробуем как Минфин, если домен tass — как ТАСС.
+            val isTass = url.contains("tass.ru", ignoreCase = true)
+            val publication = withContext(Dispatchers.IO) {
+                if (isTass) {
+                    LogStore.info("Источник определён как ТАСС")
+                    val html = tassFetcher.fetchPublicationPage(url)
+                    LogStore.info("Скачано ${html.length} символов, парсим")
+                    TassParser.parse(html, url, "Тест по URL")
+                } else {
+                    LogStore.info("Источник определён как Минфин")
+                    val html = minfinFetcher.fetchPublicationPage(url)
+                    LogStore.info("Скачано ${html.length} символов, парсим")
+                    MinfinParser.parse(html, url, "Тест по URL")
+                }
+            }
+
+            if (publication == null) {
+                LogStore.error("Не удалось распарсить число из страницы. Проверь URL.")
+                onState(RobotRunState.ERROR)
+                return RobotRunState.ERROR
+            }
+
+            onState(RobotRunState.PUBLICATION_FOUND)
+            LogStore.info(
+                "[${publication.sourceLabel}] daily=${publication.dailyVolumeRubBn} млрд " +
+                    "(${if (publication.isPaused) "ПАУЗА" else "торгуем"}), " +
+                    "period=${publication.periodStart}…${publication.periodEnd}"
+            )
+
+            if (publication.isPaused) {
+                LogStore.warn("Пауза операций — НЕ ТОРГУЕМ (защита от паузы сработала)")
+                onState(RobotRunState.DONE_PAUSE)
+                return RobotRunState.DONE_PAUSE
+            }
+
+            val matched = evaluator.match(publication, scenarios)
+            LogStore.info("Сработало сценариев: ${matched.size} из ${scenarios.size}")
+            if (matched.isEmpty()) {
+                LogStore.info("Ни один сценарий не подошёл под значение ${publication.dailyVolumeRubBn}")
+                onState(RobotRunState.DONE_SUCCESS)
+                return RobotRunState.DONE_SUCCESS
+            }
+
+            onState(RobotRunState.PLACING_ORDERS)
+            placeOrdersParallel(matched, instruments, accountId)
+
+            onState(RobotRunState.DONE_SUCCESS)
+            RobotRunState.DONE_SUCCESS
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            LogStore.info("Тест по URL остановлен")
+            onState(RobotRunState.DONE_WINDOW_EXPIRED)
+            throw e
+        } catch (e: Exception) {
+            LogStore.error("Тест по URL: ${e.javaClass.simpleName}: ${e.message ?: "(нет сообщения)"}")
+            onState(RobotRunState.ERROR)
+            RobotRunState.ERROR
+        }
+    }
+
     private suspend fun waitForWindowStart(config: RobotConfig): Boolean {
         val now = ZonedDateTime.now(MOSCOW)
         val target = config.targetDate

@@ -49,6 +49,51 @@ fun MainScreen(viewModel: MainViewModel, state: MainUiState) {
         ScenarioList(state, viewModel)
         AddScenarioForm(state, viewModel)
         ControlButtons(state, viewModel)
+        TestByUrlCard(state, viewModel)
+    }
+}
+
+@Composable
+private fun TestByUrlCard(state: MainUiState, vm: MainViewModel) {
+    var url by remember { mutableStateOf("") }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Тест по URL публикации", fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Вставь прямую ссылку на публикацию Минфина или ТАСС. " +
+                    "Робот скачает её, распарсит, прогонит через сценарии выше " +
+                    "и отправит ордер в режиме " +
+                    if (state.isSandbox) "SANDBOX." else "PRODUCTION (реальные деньги!).",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = url,
+                onValueChange = { url = it },
+                label = { Text("URL публикации") },
+                placeholder = { Text("https://minfin.gov.ru/ru/press-center/?id_4=...") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = { vm.testByUrl(url) },
+                enabled = url.isNotBlank() &&
+                    state.scenarios.isNotEmpty() &&
+                    state.selectedAccountId != null,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    if (state.isSandbox) "Тест по URL [SANDBOX]"
+                    else "Тест по URL [PRODUCTION ⚠]"
+                )
+            }
+        }
     }
 }
 
