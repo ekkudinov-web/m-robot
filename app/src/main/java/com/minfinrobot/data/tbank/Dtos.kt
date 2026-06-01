@@ -107,10 +107,10 @@ data class PostOrderRequest(
 
 @Serializable
 data class PostOrderResponse(
-    @SerialName("order_id") val orderId: String = "",
-    @SerialName("execution_report_status") val executionReportStatus: String = "",
-    @SerialName("lots_requested") val lotsRequested: Int = 0,
-    @SerialName("lots_executed") val lotsExecuted: Int = 0,
+    @SerialName("orderId") val orderId: String = "",
+    @SerialName("executionReportStatus") val executionReportStatus: String = "",
+    @SerialName("lotsRequested") val lotsRequested: String = "0",
+    @SerialName("lotsExecuted") val lotsExecuted: String = "0",
     val message: String = ""
 )
 
@@ -172,13 +172,13 @@ data class GetOrdersRequest(
 
 @Serializable
 data class OrderState(
-    @SerialName("order_id") val orderId: String = "",
-    @SerialName("execution_report_status") val executionReportStatus: String = "",
-    @SerialName("lots_requested") val lotsRequested: Int = 0,
-    @SerialName("lots_executed") val lotsExecuted: Int = 0,
+    @SerialName("orderId") val orderId: String = "",
+    @SerialName("executionReportStatus") val executionReportStatus: String = "",
+    @SerialName("lotsRequested") val lotsRequested: String = "0",
+    @SerialName("lotsExecuted") val lotsExecuted: String = "0",
     val figi: String = "",
     val direction: String = "",
-    @SerialName("instrument_uid") val instrumentUid: String = ""
+    @SerialName("instrumentUid") val instrumentUid: String = ""
 )
 
 @Serializable

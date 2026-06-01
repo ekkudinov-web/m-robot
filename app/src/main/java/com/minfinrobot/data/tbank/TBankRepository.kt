@@ -291,13 +291,15 @@ class TBankRepository(private val settings: SecureSettingsStore) {
                    else api().postOrder(request)
 
         val statusShown = resp.executionReportStatus.ifEmpty { "(пусто)" }
+        val lotsExec = resp.lotsExecuted.toIntOrNull() ?: 0
+        val lotsReq = resp.lotsRequested.toIntOrNull() ?: 0
         LogStore.info("← статус: $statusShown, " +
-            "исполнено лотов: ${resp.lotsExecuted}/${resp.lotsRequested}, " +
+            "исполнено лотов: $lotsExec/$lotsReq, " +
             "orderId=${resp.orderId.ifEmpty { "(пусто)" }}")
 
         val s = resp.executionReportStatus.uppercase()
         val ok = s.contains("FILL") || s.contains("NEW") || s.contains("PLACED") ||
-                resp.lotsExecuted > 0
+                lotsExec > 0
         // FILL = исполнен, NEW/PARTIALLYFILL = принят в стакан. Частичное тоже успех.
 
         if (ok) {
