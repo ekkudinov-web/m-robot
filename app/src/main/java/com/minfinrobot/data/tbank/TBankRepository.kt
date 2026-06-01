@@ -48,11 +48,24 @@ class TBankRepository(private val settings: SecureSettingsStore) {
                     .addHeader("Content-Type", "application/json")
                     .build()
                 val resp = chain.proceed(req)
+                val path = req.url.encodedPath.substringAfterLast("/")
                 // Лог любых HTTP-ошибок T-Invest. Тело важно — там описание.
                 if (!resp.isSuccessful) {
                     val body = try { resp.peekBody(4096).string() } catch (e: Exception) { "?" }
-                    val path = req.url.encodedPath.substringAfterLast("/")
                     LogStore.error("T-Invest HTTP ${resp.code} на $path: $body")
+                    if (resp.code == 401) {
+                        val tokenLen = token.length
+                        LogStore.warn(
+                            "Длина токена: $tokenLen символов. " +
+                                "Нормальный T-Invest токен — 88 символов. " +
+                                "Если 0 — токен не сохранён. Если меньше 88 — обрезан при копировании."
+                        )
+                    }
+                } else if (path.contains("Order", ignoreCase = true)) {
+                    // Диагностика: для ордеров печатаем СЫРОЙ ответ даже при HTTP 200,
+                    // чтобы видеть реальные имена/значения полей (пустой статус и т.п.).
+                    val body = try { resp.peekBody(8192).string() } catch (e: Exception) { "?" }
+                    LogStore.info("RAW $path (HTTP ${resp.code}): $body")
                 }
                 resp
             }
@@ -277,17 +290,27 @@ class TBankRepository(private val settings: SecureSettingsStore) {
         val resp = if (settings.isSandbox) api().postSandboxOrder(request)
                    else api().postOrder(request)
 
-        LogStore.info("← статус: ${resp.executionReportStatus}, " +
-            "исполнено лотов: ${resp.lotsExecuted}/${resp.lotsRequested}")
+        val statusShown = resp.executionReportStatus.ifEmpty { "(пусто)" }
+        LogStore.info("← статус: $statusShown, " +
+            "исполнено лотов: ${resp.lotsExecuted}/${resp.lotsRequested}, " +
+            "orderId=${resp.orderId.ifEmpty { "(пусто)" }}")
 
-        val ok = resp.executionReportStatus.contains("FILL", true) ||
-                resp.executionReportStatus.contains("NEW", true) ||
-                resp.executionReportStatus.contains("PLACED", true)
+        val s = resp.executionReportStatus.uppercase()
+        val ok = s.contains("FILL") || s.contains("NEW") || s.contains("PLACED") ||
+                resp.lotsExecuted > 0
+        // FILL = исполнен, NEW/PARTIALLYFILL = принят в стакан. Частичное тоже успех.
 
-        if (ok) Result.success(resp.orderId.ifEmpty { orderId })
-        else Result.failure(RuntimeException(
-            "T-Invest отказал: ${resp.executionReportStatus} ${resp.message}"
-        ))
+        if (ok) {
+            Result.success(resp.orderId.ifEmpty { orderId })
+        } else if (resp.executionReportStatus.isEmpty() && resp.message.isEmpty()) {
+            Result.failure(RuntimeException(
+                "пустой ответ T-Invest (статус и message пусты) — см. строку RAW PostOrder выше"
+            ))
+        } else {
+            Result.failure(RuntimeException(
+                "T-Invest отказал: статус=$statusShown ${resp.message}"
+            ))
+        }
     } catch (e: Exception) {
         LogStore.error("placeOrder: ${e.message}")
         Result.failure(e)
