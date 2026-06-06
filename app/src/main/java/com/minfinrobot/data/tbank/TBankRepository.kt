@@ -23,6 +23,7 @@ import java.util.concurrent.TimeUnit
  * В sandbox-режиме использует специальные эндпоинты "SandboxService" (см. документацию)
  * (требование официального API — обычные методы на sandbox-домене не работают).
  */
+@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 class TBankRepository(private val settings: SecureSettingsStore) {
 
     private var cachedClient: Pair<Boolean, TBankApi>? = null
