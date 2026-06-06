@@ -59,4 +59,14 @@ object LogStore {
     fun clear() {
         _entries.value = emptyList()
     }
+
+    /** Весь лог одной строкой — для копирования / выгрузки в файл. */
+    fun dumpText(): String {
+        val list = _entries.value
+        if (list.isEmpty()) return "Лог пуст."
+        return buildString {
+            appendLine("=== Минфин-робот: лог (${list.size} записей) ===")
+            list.forEach { appendLine(it.format()) }
+        }
+    }
 }
