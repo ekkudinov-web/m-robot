@@ -2,6 +2,8 @@ package com.minfinrobot.ui.cbr
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +38,7 @@ import com.minfinrobot.domain.model.ScenarioOperator
 import com.minfinrobot.domain.model.TradeAction
 import com.minfinrobot.ui.MainUiState
 import com.minfinrobot.ui.MainViewModel
+import com.minfinrobot.ui.theme.AppColors
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -50,6 +53,7 @@ fun CbrScreen(viewModel: MainViewModel, state: MainUiState) {
         CbrAccountInfo(state)
         CbrScenarioList(state, viewModel)
         CbrAddScenarioForm(state, viewModel)
+        CbrTestByUrlCard(state, viewModel)
         CbrControls(state, viewModel)
     }
 }
@@ -59,17 +63,19 @@ private fun CbrStatusCard(state: MainUiState) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = if (state.isSandbox)
-                MaterialTheme.colorScheme.tertiaryContainer
-            else
-                MaterialTheme.colorScheme.errorContainer
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("Робот ключевой ставки ЦБ", fontWeight = FontWeight.Bold)
             Text(
-                "Режим: ${if (state.isSandbox) "SANDBOX" else "PRODUCTION (БОЕВОЙ)"}",
-                style = MaterialTheme.typography.bodySmall
+                "Робот ключевой ставки ЦБ",
+                fontWeight = FontWeight.Bold,
+                color = AppColors.Gold
+            )
+            Text(
+                "Режим: ${if (state.isSandbox) "SANDBOX (учебные деньги)" else "PRODUCTION (БОЕВОЙ)"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (state.isSandbox) AppColors.Buy else AppColors.Sell
             )
             Text(
                 "Статус: ${formatState(state.robotState)}",
@@ -83,6 +89,7 @@ private fun CbrStatusCard(state: MainUiState) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CbrDateSelector(state: MainUiState, vm: MainViewModel) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -97,25 +104,25 @@ private fun CbrDateSelector(state: MainUiState, vm: MainViewModel) {
             Spacer(Modifier.height(8.dp))
 
             // Грубые сдвиги — без full date picker, чтобы не тянуть зависимости.
-            // Пользователь правит до точной даты заседания.
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // FlowRow: кнопки переносятся на новую строку, а не сжимаются в столбик.
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 OutlinedButton(
                     onClick = { vm.setCbrMeetingDate(state.cbrMeetingDate.minusDays(1)) }
-                ) { Text("← день") }
+                ) { Text("−1 день") }
                 OutlinedButton(
                     onClick = { vm.setCbrMeetingDate(state.cbrMeetingDate.plusDays(1)) }
-                ) { Text("день →") }
+                ) { Text("+1 день") }
                 OutlinedButton(
                     onClick = { vm.setCbrMeetingDate(state.cbrMeetingDate.plusWeeks(1)) }
                 ) { Text("+1 нед") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = { vm.setCbrMeetingDate(state.cbrMeetingDate.minusMonths(1)) }
-                ) { Text("← месяц") }
+                ) { Text("−1 мес") }
                 OutlinedButton(
                     onClick = { vm.setCbrMeetingDate(state.cbrMeetingDate.plusMonths(1)) }
-                ) { Text("месяц →") }
+                ) { Text("+1 мес") }
                 OutlinedButton(
                     onClick = { vm.setCbrMeetingDate(LocalDate.now()) }
                 ) { Text("Сегодня") }
@@ -356,6 +363,55 @@ private fun CbrAddScenarioForm(state: MainUiState, vm: MainViewModel) {
                 },
                 modifier = Modifier.fillMaxWidth()
             ) { Text("+ Добавить сценарий ЦБ") }
+        }
+    }
+}
+
+@Composable
+private fun CbrTestByUrlCard(state: MainUiState, vm: MainViewModel) {
+    var url by remember { mutableStateOf("") }
+    val isRunning = state.robotState in listOf(
+        RobotRunState.WAITING_FOR_WINDOW,
+        RobotRunState.POLLING_LISTING,
+        RobotRunState.PUBLICATION_FOUND,
+        RobotRunState.PLACING_ORDERS
+    )
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Тест по URL (ЦБ)", fontWeight = FontWeight.Bold, color = AppColors.Gold)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Вставь URL пресс-релиза любого прошлого заседания — " +
+                    "робот скачает, распарсит ставку, прогонит сценарии и отправит ордер. " +
+                    "Дата и окно 13:25–14:00 не проверяются.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = url,
+                onValueChange = { url = it },
+                label = { Text("URL: cbr.ru/press/pr/?file=ДДММГГГГ_133000key.htm") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            val buttonLabel = if (state.isSandbox)
+                "Тест по URL [SANDBOX]"
+            else
+                "Тест по URL [PRODUCTION ⚠]"
+            Button(
+                onClick = { vm.testCbrByUrl(url) },
+                enabled = !isRunning &&
+                    url.isNotBlank() &&
+                    state.cbrScenarios.isNotEmpty() &&
+                    state.selectedAccountId != null,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(buttonLabel) }
+            Text(
+                "Подсказка: URL текущей даты показан в карточке «Дата заседания» — " +
+                    "поставь дату прошлого заседания и скопируй оттуда.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

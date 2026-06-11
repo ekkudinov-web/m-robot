@@ -71,6 +71,25 @@ data class FuturesResponse(
     val instruments: List<FutureDto> = emptyList()
 )
 
+// --- Акции (InstrumentsService/Shares) ---
+
+@Serializable
+data class ShareDto(
+    val uid: String = "",
+    val figi: String = "",
+    val ticker: String = "",
+    val name: String = "",
+    @SerialName("min_price_increment") val minPriceIncrement: Quotation = Quotation(),
+    val lot: Int = 1,
+    val currency: String = "",
+    @SerialName("country_of_risk") val countryOfRisk: String = ""
+)
+
+@Serializable
+data class SharesResponse(
+    val instruments: List<ShareDto> = emptyList()
+)
+
 // --- LastPrices (опционально) ---
 
 @Serializable

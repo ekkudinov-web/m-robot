@@ -53,6 +53,11 @@ interface TBankApi {
         @Body body: GetInstrumentsRequest = GetInstrumentsRequest()
     ): FuturesResponse
 
+    @POST("rest/tinkoff.public.invest.api.contract.v1.InstrumentsService/Shares")
+    suspend fun getShares(
+        @Body body: GetInstrumentsRequest = GetInstrumentsRequest()
+    ): SharesResponse
+
     @POST("rest/tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices")
     suspend fun getLastPrices(@Body body: GetLastPricesRequest): LastPricesResponse
 }

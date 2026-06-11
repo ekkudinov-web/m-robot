@@ -87,14 +87,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _uiState.value = _uiState.value.copy(isLoadingReferences = true, errorMessage = null)
             try {
                 val accounts = appInstance.tbank.loadAccounts()
-                val instruments = appInstance.tbank.loadFutures()
+                val futures = appInstance.tbank.loadFutures()
+                val shares = try {
+                    appInstance.tbank.loadShares()
+                } catch (e: Exception) {
+                    LogStore.warn("Акции не загрузились: ${e.message} — продолжаем без них")
+                    emptyList()
+                }
+                val instruments = futures + shares
                 _uiState.value = _uiState.value.copy(
                     accounts = accounts,
                     instruments = instruments,
                     selectedAccountId = accounts.firstOrNull()?.id,
                     isLoadingReferences = false
                 )
-                LogStore.info("Загружено: ${accounts.size} счетов, ${instruments.size} фьючерсов")
+                LogStore.info(
+                    "Загружено: ${accounts.size} счетов, " +
+                        "${futures.size} фьючерсов, ${shares.size} акций"
+                )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLoadingReferences = false,
@@ -308,6 +318,36 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearCbrScenarios() {
         _uiState.value = _uiState.value.copy(cbrScenarios = emptyList())
+    }
+
+    /**
+     * Тест ЦБ-робота по прямому URL пресс-релиза (любое прошлое заседание).
+     * Полная цепочка: скачать → распарсить ставку → сценарии → ордер.
+     * Работает в обоих режимах (sandbox/production), как у Минфина.
+     */
+    fun testCbrByUrl(url: String) {
+        val state = _uiState.value
+        if (url.isBlank()) {
+            LogStore.error("Введи URL пресс-релиза ЦБ")
+            return
+        }
+        val accountId = state.selectedAccountId ?: run {
+            LogStore.error("Не выбран счёт")
+            return
+        }
+        if (state.cbrScenarios.isEmpty()) {
+            LogStore.error("Нет ни одного сценария ЦБ")
+            return
+        }
+        viewModelScope.launch {
+            appInstance.startCbrRobotUseCase.invokeForUrl(
+                url = url.trim(),
+                accountId = accountId,
+                scenarios = state.cbrScenarios,
+                instruments = state.instruments,
+                onState = { /* всё видно в логах */ }
+            )
+        }
     }
 
     fun startCbrRobot() {

@@ -98,6 +98,69 @@ class StartCbrRobotUseCase(
         }
     }
 
+    /**
+     * Тест по прямому URL пресс-релиза ЦБ — без ожидания окна и проверки даты.
+     * Полная боевая цепочка: скачать → распарсить ставку → сценарии → ордера.
+     * Подходит для любого прошлого заседания, работает в sandbox и production.
+     */
+    suspend fun invokeForUrl(
+        url: String,
+        accountId: String,
+        scenarios: List<CbrScenario>,
+        instruments: List<InstrumentRef>,
+        onState: suspend (RobotRunState) -> Unit
+    ): RobotRunState {
+        return try {
+            val mode = if (settings.isSandbox) "SANDBOX" else "PRODUCTION"
+            LogStore.info("=== ЦБ: ТЕСТ ПО URL ($mode) ===")
+            LogStore.info("URL: $url")
+            if (settings.isSandbox) {
+                LogStore.warn("Режим SANDBOX — ордер уйдёт на учебный счёт")
+            } else {
+                LogStore.warn("⚠ Режим PRODUCTION — ордер уйдёт на РЕАЛЬНЫЙ счёт!")
+            }
+
+            onState(RobotRunState.POLLING_LISTING)
+            val decision = withContext(Dispatchers.IO) {
+                val html = cbrFetcher.fetchPressRelease(url.trim())
+                LogStore.info("Скачано ${html.length} символов, ищем ставку в <title>")
+                CbrRateParser.parse(html, url)
+            }
+            if (decision == null) {
+                LogStore.error("Ставка не распарсилась. Проверь, что это страница решения по ставке.")
+                onState(RobotRunState.ERROR)
+                return RobotRunState.ERROR
+            }
+
+            onState(RobotRunState.PUBLICATION_FOUND)
+            LogStore.info("[ЦБ] Ставка = ${decision.ratePercent}% годовых")
+            LogStore.info("[ЦБ] Заголовок: ${decision.title.take(140)}")
+
+            val matched = evaluator.match(decision, scenarios)
+            LogStore.info("Сработало сценариев: ${matched.size} из ${scenarios.size}")
+            if (matched.isEmpty()) {
+                onState(RobotRunState.DONE_SUCCESS)
+                return RobotRunState.DONE_SUCCESS
+            }
+
+            onState(RobotRunState.PLACING_ORDERS)
+            placeOrdersParallel(matched, instruments, accountId)
+
+            onState(RobotRunState.DONE_SUCCESS)
+            RobotRunState.DONE_SUCCESS
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            LogStore.info("ЦБ тест по URL остановлен (отмена)")
+            onState(RobotRunState.DONE_WINDOW_EXPIRED)
+            throw e
+        } catch (e: Exception) {
+            LogStore.error(
+                "ЦБ тест по URL: ${e.javaClass.simpleName}: ${e.message ?: "(нет сообщения)"}"
+            )
+            onState(RobotRunState.ERROR)
+            RobotRunState.ERROR
+        }
+    }
+
     private suspend fun waitForWindowStart(config: CbrConfig): Boolean {
         val now = ZonedDateTime.now(MOSCOW)
         val target = config.meetingDate

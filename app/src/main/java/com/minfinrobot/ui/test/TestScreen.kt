@@ -25,6 +25,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.minfinrobot.data.cbr.CbrFetcher
+import com.minfinrobot.data.cbr.CbrRateParser
 import com.minfinrobot.data.minfin.MinfinFetcher
 import com.minfinrobot.data.minfin.MinfinParser
 import com.minfinrobot.data.tass.TassFetcher
@@ -37,6 +39,8 @@ import com.minfinrobot.domain.model.TradeAction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 /**
  * Тестовая вкладка для проверки парсеров и симуляции робота
@@ -51,12 +55,14 @@ import kotlinx.coroutines.withContext
 @Composable
 fun TestScreen() {
     var inputText by remember { mutableStateOf("") }
+    var cbrInput by remember { mutableStateOf("") }
     var resultText by remember { mutableStateOf("Готов к тестам") }
     var isWorking by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     val minfinFetcher = remember { MinfinFetcher() }
     val tassFetcher = remember { TassFetcher() }
+    val cbrFetcher = remember { CbrFetcher() }
     val evaluator = remember { ScenarioEvaluator() }
 
     Column(
@@ -200,6 +206,54 @@ fun TestScreen() {
             enabled = !isWorking,
             modifier = Modifier.fillMaxWidth()
         ) { Text("Прогнать 9 исторических кейсов 2020-2026") }
+
+        Text("ЦБ (ключевая ставка):", fontWeight = FontWeight.Bold)
+        OutlinedTextField(
+            value = cbrInput,
+            onValueChange = { cbrInput = it },
+            label = { Text("Дата ДДММГГГГ (напр. 24042026) или полный URL") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Button(
+            onClick = {
+                isWorking = true
+                resultText = "Запрашиваю пресс-релиз ЦБ..."
+                scope.launch {
+                    resultText = try {
+                        val raw = cbrInput.trim()
+                        val url = if (raw.startsWith("http", ignoreCase = true)) {
+                            raw
+                        } else {
+                            val date = LocalDate.parse(
+                                raw, DateTimeFormatter.ofPattern("ddMMyyyy")
+                            )
+                            cbrFetcher.buildUrl(date)
+                        }
+                        val html = withContext(Dispatchers.IO) {
+                            cbrFetcher.fetchPressRelease(url)
+                        }
+                        val decision = CbrRateParser.parse(html, url)
+                        if (decision != null) {
+                            "✓ ЦБ: ставка распарсилась\n" +
+                                "URL: $url\n" +
+                                "Размер страницы: ${html.length} символов\n" +
+                                "Ставка: ${decision.ratePercent}% годовых\n" +
+                                "Заголовок: ${decision.title.take(160)}"
+                        } else {
+                            "✗ ЦБ: страница скачана (${html.length} симв.), " +
+                                "но ставка из <title> не распарсилась.\nURL: $url"
+                        }
+                    } catch (e: Exception) {
+                        "✗ ЦБ: ${e.javaClass.simpleName}: ${e.message}\n" +
+                            "(До 13:30 МСК в день заседания страница даёт 404 — это норма. " +
+                            "Для прошлых заседаний проверь дату.)"
+                    }
+                    isWorking = false
+                }
+            },
+            enabled = !isWorking && cbrInput.isNotBlank(),
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("ЦБ: скачать и распарсить ставку") }
 
         HorizontalDivider()
 

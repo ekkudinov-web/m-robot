@@ -130,6 +130,40 @@ class TBankRepository(private val settings: SecureSettingsStore) {
             .sortedBy { it.expirationDateMillis }
     }
 
+    /**
+     * Акции для торговли на решении ЦБ (и Минфина). Тянем весь справочник
+     * Shares и фильтруем по белому списку ликвидных тикеров MOEX — иначе
+     * в выборе будут тысячи бумаг. Рублёвые, RU-риск.
+     *
+     * basicAsset = "АКЦИЯ" — для подписи в выборе инструмента.
+     * expirationDateMillis = Long.MAX_VALUE — акции бессрочные, в сортировке
+     * по экспирации встают после фьючерсов.
+     */
+    suspend fun loadShares(
+        wantedTickers: Set<String> = DEFAULT_SHARE_TICKERS
+    ): List<InstrumentRef> {
+        val resp = api().getShares()
+        val upper = wantedTickers.map { it.uppercase() }.toSet()
+        return resp.instruments
+            .filter { dto ->
+                dto.currency.equals("rub", ignoreCase = true) &&
+                    dto.ticker.uppercase() in upper
+            }
+            .map { dto ->
+                InstrumentRef(
+                    uid = dto.uid,
+                    figi = dto.figi,
+                    ticker = dto.ticker,
+                    name = dto.name,
+                    expirationDateMillis = Long.MAX_VALUE,
+                    minPriceIncrement = dto.minPriceIncrement.toDouble(),
+                    lot = dto.lot,
+                    basicAsset = "АКЦИЯ"
+                )
+            }
+            .sortedBy { it.ticker }
+    }
+
     suspend fun getLastPrice(instrumentUid: String): Double? {
         val resp = api().getLastPrices(GetLastPricesRequest(instrumentId = listOf(instrumentUid)))
         return resp.lastPrices.firstOrNull()?.price?.toDouble()
@@ -359,6 +393,24 @@ class TBankRepository(private val settings: SecureSettingsStore) {
             "RTS",
             "RGBI",
             "IMOEXF"
+        )
+
+        /**
+         * Ликвидные акции MOEX для торговли на решении ЦБ.
+         * Банки и застройщики реагируют на ставку сильнее всех,
+         * далее — голубые фишки с высокой долговой нагрузкой.
+         */
+        val DEFAULT_SHARE_TICKERS = setOf(
+            // банки и финансы — главные бенефициары/жертвы ставки
+            "SBER", "SBERP", "VTBR", "T", "MOEX", "SVCB", "BSPB",
+            // застройщики — кредитное плечо + ипотека
+            "PIKK", "SMLT", "LSRG",
+            // голубые фишки
+            "GAZP", "LKOH", "ROSN", "NVTK", "GMKN", "TATN", "SNGS", "SNGSP",
+            "PLZL", "CHMF", "NLMK", "MGNT", "MTSS", "AFLT", "ALRS", "RUAL",
+            "PHOR", "IRAO", "OZON", "YDEX",
+            // высокая долговая нагрузка — чувствительны к ставке
+            "AFKS", "MTLR", "SGZH"
         )
     }
 }
